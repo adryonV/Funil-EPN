@@ -254,7 +254,9 @@ function headerIndex(h, ...names) {
     prod:  headerIndex(h2, 'Produto'),
     tipo:  headerIndex(h2, 'Tipo'),
     mail:  headerIndex(h2, 'E-mail', 'Email'),
-    val:   headerIndex(h2, 'Fat. líquido (USD)', 'Fat. liquido (USD)', 'Faturamento líquido (USD)', 'Fat. líquido', 'Valor bruto (BRL)'),
+    // Faturamento em US$ (col M). NÃO incluir a coluna BRL aqui: headerIndex devolve a
+    // PRIMEIRA coluna que casa qualquer alias, e "Valor bruto (BRL)" vem ANTES da USD.
+    val:   headerIndex(h2, 'Fat. líquido (USD)', 'Fat. liquido (USD)', 'Faturamento líquido (USD)'),
     src:   headerIndex(h2, 'Origem UTM (bruto)', 'Origem UTM', 'Origem'),
     det:   headerIndex(h2, 'Detalhe UTM', 'Detalhe', 'SCK'),
   };
