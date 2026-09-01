@@ -57,17 +57,34 @@ const TAX_RATE = 1;
 const PAID_STATUS = new Set(['aprovado', 'approved', 'completo', 'complete', 'completed',
                              'pago', 'paid', 'concluido', 'concluída', 'concluida']);
 
-// --- Câmbio USD→BRL: cotação DO MOMENTO (tempo real) ------------------------
-// Fonte primária: AwesomeAPI (dólar comercial, mercado BR, atualiza a cada ~minuto) —
-// usamos o "bid" (cotação de compra), que é a cotação do instante do build.
-// Se falhar, cai para open.er-api.com (cotação DIÁRIA) e, por último, valor fixo.
-const FX_REALTIME = 'https://economia.awesomeapi.com.br/last/USD-BRL';
+// --- Câmbio USD→BRL: cotação DO MOMENTO (spot, tempo real) ------------------
+// Ordem de fontes (cada uma é a cotação do INSTANTE do build):
+//   1) Yahoo Finance USDBRL=X (regularMarketPrice) — spot intradiário, funciona no runner.
+//   2) AwesomeAPI (bid) — dólar comercial BR (às vezes bloqueia IP de datacenter → 2ª).
+//   3) open.er-api.com — cotação DIÁRIA (backup se as de tempo real falharem).
+//   4) valor fixo FX_FALLBACK.
+const FX_YAHOO    = 'https://query1.finance.yahoo.com/v8/finance/chart/USDBRL=X?interval=1d&range=1d';
+const FX_AWESOME  = 'https://economia.awesomeapi.com.br/last/USD-BRL';
 const FX_DAILY    = 'https://open.er-api.com/v6/latest/USD';
-const FX_FALLBACK = 5.14;  // usado só se ambas as fontes falharem
+const FX_FALLBACK = 5.14;  // usado só se todas as fontes falharem
+const UA = 'Mozilla/5.0 (funnel-dashboard-build)';
 async function fetchFxUsdBrl() {
-  // 1) tempo real (AwesomeAPI) — a cotação do momento
+  // 1) Yahoo Finance — spot do momento
   try {
-    const r = await fetch(FX_REALTIME, { headers: { 'User-Agent': 'funnel-dashboard-build' } });
+    const r = await fetch(FX_YAHOO, { headers: { 'User-Agent': UA } });
+    if (r.ok) {
+      const j = await r.json();
+      const meta = j && j.chart && j.chart.result && j.chart.result[0] && j.chart.result[0].meta;
+      const rate = meta && Number(meta.regularMarketPrice);
+      if (Number.isFinite(rate) && rate > 0) {
+        const dt = meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : null;
+        return { fx: rate, date: dt, source: 'Yahoo Finance USDBRL=X (spot)' };
+      }
+    } else console.warn('FX Yahoo HTTP', r.status);
+  } catch (e) { console.warn('FX Yahoo falhou:', e.message); }
+  // 2) AwesomeAPI — bid tempo real (mercado BR)
+  try {
+    const r = await fetch(FX_AWESOME, { headers: { 'User-Agent': UA } });
     if (r.ok) {
       const j = await r.json();
       const q = j && j.USDBRL;
@@ -75,20 +92,21 @@ async function fetchFxUsdBrl() {
       if (Number.isFinite(rate) && rate > 0) {
         return { fx: rate, date: q.create_date || null, source: 'awesomeapi.com.br (tempo real, bid)' };
       }
-    }
-  } catch (e) { console.warn('FX tempo real falhou:', e.message); }
-  // 2) diária (open.er-api.com) — backup
+    } else console.warn('FX AwesomeAPI HTTP', r.status);
+  } catch (e) { console.warn('FX AwesomeAPI falhou:', e.message); }
+  // 3) open.er-api.com — cotação diária (backup)
   try {
-    const r = await fetch(FX_DAILY, { headers: { 'User-Agent': 'funnel-dashboard-build' } });
+    const r = await fetch(FX_DAILY, { headers: { 'User-Agent': UA } });
     if (r.ok) {
       const j = await r.json();
       const rate = j && j.rates && Number(j.rates.BRL);
       if (Number.isFinite(rate) && rate > 0) {
         return { fx: rate, date: j.time_last_update_utc || null, source: 'open.er-api.com (diária)' };
       }
-    }
+    } else console.warn('FX open.er-api HTTP', r.status);
   } catch (e) { console.warn('FX diária falhou:', e.message); }
-  // 3) fallback fixo
+  // 4) fallback fixo
+  console.warn('Todas as fontes de câmbio falharam — usando fallback', FX_FALLBACK);
   return { fx: FX_FALLBACK, date: null, source: 'fallback' };
 }
 
