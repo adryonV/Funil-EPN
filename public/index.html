@@ -388,7 +388,9 @@ const norm = s => String(s == null ? "" : s).toLowerCase().normalize("NFD").repl
 /* ============================================================ métricas
    Conta em USD: `gross` = gasto cru em US$; `spend` = gross × câmbio (USD→BRL),
    em REAL. Toda métrica de dinheiro consome `spend`, então todas saem em BRL.
-   Sem imposto (meta.tax = 1). A receita das vendas (rev) já está em BRL.        */
+   Sem imposto (meta.tax = 1). A RECEITA das vendas (`s.v`) vem CRUA em US$
+   (coluna "Fat. líquido (USD)") e é convertida para BRL aqui, ×câmbio, igual
+   ao gasto — então `rev` também sai em REAL.                                   */
 function blank(){
   return {spend:0, gross:0, imp:0, clk:0, lpv:0, ic:0, sales:0, rev:0};
 }
@@ -397,7 +399,7 @@ function accAd(t, r, tax){
   t.gross += r.spend; t.spend += r.spend * tax * fx;
   t.imp += r.imp; t.clk += r.clk; t.lpv += r.lpv; t.ic += r.ic;
 }
-function accSale(t, s){ t.sales += 1; t.rev += s.v; }
+function accSale(t, s){ const fx = (DATA.meta && DATA.meta.fx) || 1; t.sales += 1; t.rev += s.v * fx; }
 
 const div = (a,b) => (b > 0 ? a/b : null);
 
@@ -430,12 +432,12 @@ function isTraffic(s){
 const saleInScope = s => STATE.mode === "total" ? true : isTraffic(s);
 
 function aggregate(from, to){
-  const tax = DATA.meta.tax, t = blank();
+  const tax = DATA.meta.tax, fx = (DATA.meta && DATA.meta.fx) || 1, t = blank();
   for (const r of DATA.ads) if (r.d >= from && r.d <= to) accAd(t, r, tax);
   let allSales = 0, allRev = 0, trafSales = 0, trafRev = 0;
   for (const s of DATA.sales) if (s.d >= from && s.d <= to){
-    allSales++; allRev += s.v;
-    if (isTraffic(s)){ trafSales++; trafRev += s.v; }
+    allSales++; allRev += s.v * fx;
+    if (isTraffic(s)){ trafSales++; trafRev += s.v * fx; }
     if (saleInScope(s)) accSale(t, s);       // a aba ativa decide o que entra nas métricas
   }
   const d = derive(t);
@@ -836,8 +838,8 @@ const SUB = [
 ];
 
 /* Saúde do funil ancorada no NÚMERO DO CLIENTE, não em benchmark de mercado:
-   teto de CAC = R$ 57. Tudo (bandas, ROAS, tetos de CPC/CPM) é derivado dele. */
-const CAC_GOAL = 57;    // teto de CAC definido pelo cliente (R$)
+   teto de CAC = R$ 147. Tudo (bandas, ROAS, tetos de CPC/CPM) é derivado dele. */
+const CAC_GOAL = 147;    // teto de CAC definido pelo cliente (R$)
 const TICKET   = 29;    // ticket do produto (R$) — usado só p/ derivar o piso de ROAS = ticket/teto
 
 /* Bandas de referência do funil pós-clique (rules-of-thumb de mercado, EDITÁVEIS).

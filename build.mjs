@@ -23,12 +23,13 @@
 //      o ANÚNCIO é o último segmento). Conjunto e campanha têm " | " interno, então
 //      casamos pelo MAIOR nome conhecido presente na string. Origem paga = coluna
 //      "Origem UTM (bruto)" == "Facebook-Ads".
-//      RECEITA: coluna "Valor bruto (BRL)" — já em REAL, NÃO converte.
+//      RECEITA (faturamento): coluna "Fat. líquido (USD)" — valor LÍQUIDO em DÓLAR.
+//      Vai CRU em US$ no data.json; o dashboard converte p/ BRL ×câmbio (como o gasto).
+//      (A coluna "Fat. líquido (BRL)" vem quebrada com #REF!, por isso usamos a USD.)
 //
-// MOEDA: a conta de anúncios é em DÓLAR (USD). O gasto vai CRU em USD no data.json;
-// o dashboard multiplica por meta.fx (câmbio USD→BRL, buscado ao vivo a cada build)
-// para exibir TODAS as métricas de dinheiro em REAL (BRL). SEM imposto (meta.tax = 1).
-// A RECEITA das vendas já está em BRL na planilha (coluna "Valor bruto (BRL)").
+// MOEDA: a conta de anúncios é em DÓLAR (USD). Gasto E faturamento vão CRUS em USD no
+// data.json; o dashboard multiplica por meta.fx (câmbio USD→BRL, buscado ao vivo a cada
+// build) para exibir TODAS as métricas de dinheiro em REAL (BRL). SEM imposto (meta.tax = 1).
 
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 
@@ -253,7 +254,7 @@ function headerIndex(h, ...names) {
     prod:  headerIndex(h2, 'Produto'),
     tipo:  headerIndex(h2, 'Tipo'),
     mail:  headerIndex(h2, 'E-mail', 'Email'),
-    val:   headerIndex(h2, 'Valor bruto (BRL)', 'Valor bruto', 'Valor compra (orig.)', 'Valor'),
+    val:   headerIndex(h2, 'Fat. líquido (USD)', 'Fat. liquido (USD)', 'Faturamento líquido (USD)', 'Fat. líquido', 'Valor bruto (BRL)'),
     src:   headerIndex(h2, 'Origem UTM (bruto)', 'Origem UTM', 'Origem'),
     det:   headerIndex(h2, 'Detalhe UTM', 'Detalhe', 'SCK'),
   };
@@ -346,8 +347,8 @@ function headerIndex(h, ...names) {
 
   const warnings = [];
   warnings.push(`Gasto da conta em USD → convertido para BRL a câmbio ×${fxInfo.fx.toFixed(4)} (${fxInfo.source}${fxInfo.date ? ', ' + fxInfo.date : ''}). Sem imposto.`);
-  warnings.push(`Vendas filtradas pelo produto (coluna "Produto"): core "${CORE_PRODUCT}"; order bump "${BUMP_PRODUCT}". Receita = coluna "Valor bruto (BRL)" (já em R$).`);
-  if (mergedBumps > 0) warnings.push(`${mergedBumps} order bump "${BUMP_PRODUCT}" somado(s) como receita ao pedido do mesmo comprador (R$ ${mergedBumpValue.toFixed(2)}) — não conta(m) como venda nova.`);
+  warnings.push(`Vendas filtradas pelo produto (coluna "Produto"): core "${CORE_PRODUCT}"; order bump "${BUMP_PRODUCT}". Faturamento = coluna "Fat. líquido (USD)" (US$ líquido) convertido para R$ a câmbio ×${fxInfo.fx.toFixed(4)}.`);
+  if (mergedBumps > 0) warnings.push(`${mergedBumps} order bump "${BUMP_PRODUCT}" somado(s) como faturamento ao pedido do mesmo comprador (US$ ${mergedBumpValue.toFixed(2)}) — não conta(m) como venda nova.`);
   if (orphanBumps > 0) warnings.push(`${orphanBumps} order bump sem pedido core do mesmo e-mail (R$ ${orphanBumpValue.toFixed(2)}) — não incluído(s).`);
   if (skippedStatus > 0) warnings.push(`${skippedStatus} linha(s) do produto com status não aprovado — descartada(s).`);
   if (attribution.none > 0)      warnings.push(`${attribution.none} venda(s) de tráfego sem Detalhe UTM — contam na receita, mas ficam em "Não atribuído".`);
