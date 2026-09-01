@@ -57,23 +57,39 @@ const TAX_RATE = 1;
 const PAID_STATUS = new Set(['aprovado', 'approved', 'completo', 'complete', 'completed',
                              'pago', 'paid', 'concluido', 'concluída', 'concluida']);
 
-// --- Câmbio USD→BRL (buscado ao vivo a cada build) --------------------------
-const FX_SOURCE   = 'https://open.er-api.com/v6/latest/USD'; // grátis, sem chave
-const FX_FALLBACK = 5.11;  // usado só se a cotação ao vivo falhar
+// --- Câmbio USD→BRL: cotação DO MOMENTO (tempo real) ------------------------
+// Fonte primária: AwesomeAPI (dólar comercial, mercado BR, atualiza a cada ~minuto) —
+// usamos o "bid" (cotação de compra), que é a cotação do instante do build.
+// Se falhar, cai para open.er-api.com (cotação DIÁRIA) e, por último, valor fixo.
+const FX_REALTIME = 'https://economia.awesomeapi.com.br/last/USD-BRL';
+const FX_DAILY    = 'https://open.er-api.com/v6/latest/USD';
+const FX_FALLBACK = 5.14;  // usado só se ambas as fontes falharem
 async function fetchFxUsdBrl() {
+  // 1) tempo real (AwesomeAPI) — a cotação do momento
   try {
-    const r = await fetch(FX_SOURCE, { headers: { 'User-Agent': 'funnel-dashboard-build' } });
-    if (!r.ok) throw new Error(`FX HTTP ${r.status}`);
-    const j = await r.json();
-    const rate = j && j.rates && Number(j.rates.BRL);
-    if (Number.isFinite(rate) && rate > 0) {
-      return { fx: rate, date: j.time_last_update_utc || null, source: 'open.er-api.com' };
+    const r = await fetch(FX_REALTIME, { headers: { 'User-Agent': 'funnel-dashboard-build' } });
+    if (r.ok) {
+      const j = await r.json();
+      const q = j && j.USDBRL;
+      const rate = q && Number(q.bid);
+      if (Number.isFinite(rate) && rate > 0) {
+        return { fx: rate, date: q.create_date || null, source: 'awesomeapi.com.br (tempo real, bid)' };
+      }
     }
-    throw new Error('FX payload sem rates.BRL');
-  } catch (e) {
-    console.warn('FX ao vivo falhou, usando fallback:', e.message);
-    return { fx: FX_FALLBACK, date: null, source: 'fallback' };
-  }
+  } catch (e) { console.warn('FX tempo real falhou:', e.message); }
+  // 2) diária (open.er-api.com) — backup
+  try {
+    const r = await fetch(FX_DAILY, { headers: { 'User-Agent': 'funnel-dashboard-build' } });
+    if (r.ok) {
+      const j = await r.json();
+      const rate = j && j.rates && Number(j.rates.BRL);
+      if (Number.isFinite(rate) && rate > 0) {
+        return { fx: rate, date: j.time_last_update_utc || null, source: 'open.er-api.com (diária)' };
+      }
+    }
+  } catch (e) { console.warn('FX diária falhou:', e.message); }
+  // 3) fallback fixo
+  return { fx: FX_FALLBACK, date: null, source: 'fallback' };
 }
 
 // ---------------------------------------------------------------------------
