@@ -380,7 +380,7 @@ const escape_ = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",
 /* ============================================================ estado */
 let DATA = null;
 let STATE = {from:null, to:null, compare:true, metric:"spend", mode:"total", tab:"total",
-             treeSort:{key:"spend", dir:-1}, expanded:new Set(), goal:null, preset:"all", optSearch:"", projDaily:null};
+             treeSort:{key:"spend", dir:-1}, expanded:new Set(), goal:null, preset:"all", optSearch:""};
 
 /* Normaliza p/ busca: minúsculas, sem acento. */
 const norm = s => String(s == null ? "" : s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -701,111 +701,13 @@ function setPeriod(from, to, preset){
   refresh();
 }
 
-/* Decide qual visão renderizar conforme a aba ativa (dashboard × projeção × relatório). */
+/* Decide qual visão renderizar conforme a aba ativa (dashboard × relatório). */
 function refresh(){
-  const isRep = STATE.tab === "report", isProj = STATE.tab === "projection";
-  const dv = document.getElementById("dashView"), rv = document.getElementById("reportView"), pv = document.getElementById("projView");
-  if (dv) dv.hidden = isRep || isProj;
+  const isRep = STATE.tab === "report";
+  const dv = document.getElementById("dashView"), rv = document.getElementById("reportView");
+  if (dv) dv.hidden = isRep;
   if (rv) rv.hidden = !isRep;
-  if (pv) pv.hidden = !isProj;
-  if (isRep) renderReport(); else if (isProj) renderProjection(); else render();
-}
-
-/* ============================================================ projeção
-   Projeta o FIM DA AÇÃO (CAMPAIGN_END): pega o que já foi REALIZADO no tráfego pago
-   e soma o projetado nos dias que faltam, ao ritmo (orçamento/dia) atual. 3 cenários
-   (Ruim/Médio/Bom) mudam a eficiência de conversão (±25%) → CAC; vendas, receita,
-   ROAS, resultado e a SAÚDE (vs teto de CAC) são recalculados. Orçamento/dia editável. */
-const CAMPAIGN_END = "2026-09-29";   // dia em que a ação termina
-function aggTraffic(from, to){
-  const sm = STATE.mode; STATE.mode = "traffic";
-  const r = aggregate(from, to);
-  STATE.mode = sm;
-  return r;
-}
-const projBase = () => aggTraffic(STATE.from, STATE.to);                         // ritmo/eficiência (período selecionado)
-const projRealized = () => aggTraffic(DATA.meta.date_min, DATA.meta.date_max);   // já realizado na ação inteira
-const SCEN = [
-  {key:"ruim",  label:"Ruim",  emo:"🔻", f:0.75, accent:"var(--critical)"},
-  {key:"medio", label:"Médio", emo:"➖", f:1.00, accent:"var(--ink-2)"},
-  {key:"bom",   label:"Bom",   emo:"🚀", f:1.25, accent:"var(--good)"}
-];
-function updateProjection(){
-  const scenEl = document.getElementById("projScen");
-  if (!scenEl) return;
-  const base = projBase(), realized = projRealized(), T = CAC_GOAL;
-  const baseCAC = base.cac, ticket = base.ticket, lastDay = DATA.meta.date_max;
-  const remainingDays = Math.max(0, diffDays(lastDay, CAMPAIGN_END));
-  const periodDays = Math.max(1, diffDays(STATE.from, STATE.to) + 1);
-  const dailyRate = (STATE.projDaily && STATE.projDaily > 0) ? STATE.projDaily : (base.spend / periodDays);
-  const projSpend = dailyRate * remainingDays;
-
-  const ctx = document.getElementById("projCtx");
-  if (ctx) ctx.innerHTML = remainingDays > 0
-    ? `faltam <b>${remainingDays} dia${remainingDays !== 1 ? "s" : ""}</b> até <b>${dayFull(CAMPAIGN_END)}</b> → +<b>${M.money0(projSpend)}</b> de mídia no restante`
-    : `a ação termina em <b>${dayFull(CAMPAIGN_END)}</b> — sem dias restantes; abaixo, o realizado até <b>${dayFull(lastDay)}</b>`;
-
-  const cards = SCEN.map(s => {
-    const cac = baseCAC / s.f;                       // CAC do restante (eficiência do cenário)
-    const projSales = cac > 0 ? projSpend / cac : 0;
-    const projRev = projSales * ticket;
-    const totSpend = realized.spend + projSpend;
-    const totSales = realized.sales + projSales;
-    const totRev = realized.rev + projRev;
-    const totCac = totSales > 0 ? totSpend / totSales : null;   // CAC no fim da ação (blended)
-    const totRoas = totSpend > 0 ? totRev / totSpend : null;
-    const score = Math.round(bandScore((totCac || cac) / T));
-    const eff = s.f === 1 ? "conversão atual" : `conversão ${s.f > 1 ? "+" : "−"}${Math.round(Math.abs(s.f - 1) * 100)}%`;
-    return `
-      <div class="scen" style="border-top:3px solid ${s.accent}">
-        <div class="scen-h"><span>${s.emo} ${s.label}</span>
-          <span class="scen-tag" style="background:color-mix(in srgb,${scoreColor(score)} 18%,transparent);color:${scoreColor(score)}">saúde ${isFinite(score) ? score : "—"}</span></div>
-        <div class="scen-eff">${eff} · valores no fim da ação (${dayBR(CAMPAIGN_END)})</div>
-        <div class="scen-grid">
-          <div><span>Valor gasto</span><b>${M.money0(totSpend)}</b><small>+${M.money0(projSpend)} no restante</small></div>
-          <div><span>Vendas</span><b>${M.int(totSales)}</b><small>+${M.int(projSales)} no restante</small></div>
-          <div><span>CAC</span><b style="color:${totCac != null && totCac <= T ? "var(--good-text)" : "var(--critical)"}">${M.money(totCac)}</b></div>
-          <div><span>Receita</span><b>${M.money0(totRev)}</b><small>+${M.money0(projRev)} no restante</small></div>
-          <div class="scen-full"><span>ROAS no fim da ação</span><b style="color:${totRoas >= 1 ? "var(--good-text)" : "var(--ink-1)"}">${M.x(totRoas)}</b></div>
-        </div>
-      </div>`;
-  }).join("");
-  scenEl.innerHTML = cards;
-}
-function renderProjection(){
-  const el = document.getElementById("projView");
-  const base = projBase(), realized = projRealized(), T = CAC_GOAL;
-  if (!(base.sales > 0) || base.cac == null || !isFinite(base.cac)){
-    el.innerHTML = `<div class="panel"><h2>🔮 Projeção — fim da ação em ${dayFull(CAMPAIGN_END)}</h2>
-      <p class="note">Ainda não há vendas de <b>tráfego pago</b> no período selecionado para projetar.
-      Escolha um período com vendas atribuídas ao tráfego (aba 🎯 Tráfego Pago) e volte aqui.</p></div>`;
-    return;
-  }
-  const periodDays = Math.max(1, diffDays(STATE.from, STATE.to) + 1);
-  const dailyRate = (STATE.projDaily && STATE.projDaily > 0) ? STATE.projDaily : (base.spend / periodDays);
-  el.innerHTML = `
-    <div class="panel">
-      <h2>🔮 Projeção — fim da ação em ${dayFull(CAMPAIGN_END)}</h2>
-      <p class="note"><b>Já realizado</b> no tráfego (${dayFull(DATA.meta.date_min)}–${dayFull(DATA.meta.date_max)}):
-        <b>${M.money0(realized.spend)}</b> investidos · <b>${M.int(realized.sales)}</b> vendas ·
-        ROAS <b>${M.x(realized.roas)}</b>. Ritmo do período selecionado
-        (${dayFull(STATE.from)}–${dayFull(STATE.to)}): CAC <b>${M.money(base.cac)}</b>, ticket <b>${M.money(base.ticket)}</b> ·
-        teto de CAC (meta de saúde) <b>${M.money(T)}</b>.
-        Cada cenário muda a <b>eficiência de conversão</b> em ±25% — <b style="color:var(--good-text)">Bom</b> derruba o CAC,
-        <b style="color:var(--critical)">Ruim</b> o encarece — e projeta o total até <b>${dayFull(CAMPAIGN_END)}</b>.</p>
-      <div class="goalrow">Orçamento de mídia por dia: R$
-        <input type="number" id="projDaily" min="0" step="50" value="${Math.round(dailyRate)}" inputmode="numeric">
-        <span id="projCtx" style="opacity:.8"></span></div>
-      <div class="scen-wrap" id="projScen"></div>
-    </div>`;
-  const inp = document.getElementById("projDaily");
-  if (inp) inp.oninput = () => {
-    const v = parseFloat(inp.value);
-    STATE.projDaily = isFinite(v) && v > 0 ? v : null;
-    try { STATE.projDaily ? localStorage.setItem("proj-daily", STATE.projDaily) : localStorage.removeItem("proj-daily"); } catch(e){}
-    updateProjection();
-  };
-  updateProjection();
+  if (isRep) renderReport(); else render();
 }
 
 function deltaHTML(cur, prev, fmt, higherIsBetter){
@@ -1130,7 +1032,7 @@ function buildTree(from, to){
     else                         accSale(un, s);   // sem campanha casada (UTM não bateu / orgânico)
   }
   const roll = (node, key, level) => {
-    const kids = [...node.kids.entries()].map(([lbl,ch]) => roll(ch, key + " " + lbl, level + 1));
+    const kids = [...node.kids.entries()].map(([lbl,ch]) => roll(ch, key + "" + lbl, level + 1));
     const agg = blank();
     for (const k of RAW) agg[k] = node[k];
     for (const c of kids) for (const k of RAW) agg[k] += c[k];
@@ -1570,7 +1472,6 @@ function shell(){
     <div class="viewtabs" role="tablist" aria-label="Visão">
       <button data-tab="total" role="tab">📊 Visão Geral</button>
       <button data-tab="traffic" role="tab">🎯 Tráfego Pago</button>
-      <button data-tab="projection" role="tab">🔮 Projeção</button>
       <button data-tab="report" role="tab">📄 Relatório</button>
     </div>
 
@@ -1667,7 +1568,6 @@ function shell(){
     </div>
 
     <div id="reportView" hidden></div>
-    <div id="projView" hidden></div>
 
     <footer>
       Gasto do período completo: ${moneyUSD(DATA.ads.reduce((s,r)=>s+r.spend,0))} ·
@@ -1735,12 +1635,9 @@ function shell(){
     if (optClear) optClear.onclick = () => { optS.value = ""; STATE.optSearch = ""; optClear.hidden = true; renderOpt(); optS.focus(); };
   }
 
-  // orçamento/dia da projeção (aba Projeção)
-  try { const pj = localStorage.getItem("proj-daily"); if (pj){ const v = +pj; if (isFinite(v) && v > 0) STATE.projDaily = v; } } catch(e){}
-
-  // abas: Visão Geral · Tráfego Pago · Projeção · Relatório
+  // abas: Visão Geral · Tráfego Pago · Relatório
   // chave "-v2": ignora preferência antiga salva (padrão passou a ser Visão Geral)
-  try { const tv = localStorage.getItem("funnel-tab-v2"); if (["total","traffic","projection","report"].includes(tv)) STATE.tab = tv; } catch(e){}
+  try { const tv = localStorage.getItem("funnel-tab-v2"); if (["total","traffic","report"].includes(tv)) STATE.tab = tv; } catch(e){}
   if (STATE.tab === "total" || STATE.tab === "traffic") STATE.mode = STATE.tab;
   document.querySelectorAll("[data-tab]").forEach(b => {
     b.setAttribute("aria-selected", b.dataset.tab === STATE.tab);
