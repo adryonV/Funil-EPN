@@ -1070,15 +1070,23 @@ function flatten(camps, expandedSet){
 function filterOptTree(camps, q){
   const nf = norm(q);
   const expand = new Set();
+  // Nó casa → auto-expande a SUBÁRVORE inteira (ele + todos os descendentes que têm
+  // filhos), senão o conjunto/criativos ficariam fechados sob a campanha que casou.
+  const expandAll = (n) => {
+    if (n.kids && n.kids.length){ expand.add(n.key); for (const k of n.kids) expandAll(k); }
+  };
   const rec = (nodes) => {
     const out = [];
     for (const n of nodes){
-      const self = norm(n.label).includes(nf);
-      const kids = (n.kids && n.kids.length) ? rec(n.kids) : [];
-      if (self || kids.length){
-        const keptKids = self ? n.kids : kids;
-        out.push(Object.assign({}, n, {kids:keptKids}));
-        if (keptKids.length) expand.add(n.key);
+      if (norm(n.label).includes(nf)){        // casa pelo nome → mantém e revela tudo abaixo
+        out.push(n);
+        expandAll(n);
+      } else {                                 // não casa → só sobrevive se algum descendente casar
+        const kids = (n.kids && n.kids.length) ? rec(n.kids) : [];
+        if (kids.length){
+          out.push(Object.assign({}, n, {kids}));
+          expand.add(n.key);
+        }
       }
     }
     return out;
